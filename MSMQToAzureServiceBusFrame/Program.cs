@@ -2,26 +2,37 @@
 using System.Messaging;
 using Azure.Messaging.ServiceBus;
 using System.Threading.Tasks;
+using MSMQToAzureServiceBusFrame.Configuration;
 
 namespace MSMQToAzureServiceBusFrame
 {
     class Program
     {
-        // Define MSMQ Queue and Service Bus connection strings
-        static string msmqQueuePath = @".\private$\WASPQueue1";  // Adjust MSMQ queue name
-        static string serviceBusConnectionString = "<Your_Azure_Service_Bus_Connection_String>";
-        static string serviceBusQueueName = "your-servicebus-queue-name";
-
-        static async Task Main(string[] args)
+       static async Task Main(string[] args)
         {
+            AppConfig config = null;
+            Console.WriteLine("Number of arguments: " + args.Length);
+            if (args.Length > 0)
+            {
+                 config =  AppConfig.ReadCommandLineArg(args);
+               
+            }
+            else
+            {
+                 config = AppConfig.ReadEnvConfig();
+                Console.WriteLine("Connection String: " + config.ServiceBusConnectionString);
+            }
+                
             // Initialize the MSMQ queue
-            using (MessageQueue msmqQueue = new MessageQueue(msmqQueuePath))
+            using (MessageQueue msmqQueue = new MessageQueue(config.MsmqConnectionString))
             {
                 msmqQueue.Formatter = new XmlMessageFormatter(new String[] { "System.String,mscorlib" });
 
+                var conn = config.ServiceBusConnectionString;
+
                 //// Initialize Service Bus client
-                //var client = new ServiceBusClient(serviceBusConnectionString);
-                //var sender = client.CreateSender(serviceBusQueueName);
+                var client = new ServiceBusClient(config.ServiceBusConnectionString);
+                var sender = client.CreateSender(config.ServiceBusQueueName);
 
                 Console.WriteLine("Starting to consume messages from MSMQ...");
 
@@ -42,7 +53,7 @@ namespace MSMQToAzureServiceBusFrame
                             var serviceBusMessage = new ServiceBusMessage(messageBody);
 
                             // Send the message to Azure Service Bus
-                            //await sender.SendMessageAsync(serviceBusMessage);
+                            await sender.SendMessageAsync(serviceBusMessage);
                             Console.WriteLine("Message sent to Azure Service Bus.");
                         }
                     }
