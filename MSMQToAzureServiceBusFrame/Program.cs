@@ -47,8 +47,7 @@ namespace MSMQToAzureServiceBusFrame
                         {
                             // Process message (convert to string)
                             string messageBody = msmqMessage.Body.ToString();
-                            Console.WriteLine($"Received message from MSMQ: {messageBody}");
-
+                            
                             // Create a Service Bus message
                             var serviceBusMessage = new ServiceBusMessage(messageBody);
 
