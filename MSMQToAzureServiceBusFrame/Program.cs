@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Messaging;
+using Azure.Identity;
 using Azure.Messaging.ServiceBus;
 using System.Threading.Tasks;
 using MSMQToAzureServiceBusFrame.Configuration;
@@ -31,13 +32,17 @@ namespace MSMQToAzureServiceBusFrame
             // Initialize the MSMQ queue
             using (MessageQueue msmqQueue = new MessageQueue(config.MsmqConnectionString))
             {
-                msmqQueue.Formatter = new XmlMessageFormatter(new String[] { "System.String,mscorlib" });
                 msmqQueue.MessageReadPropertyFilter.ArrivedTime = true;
 
-                var conn = config.ServiceBusConnectionString;
-
-                //// Initialize Service Bus client
-                var client = new ServiceBusClient(config.ServiceBusConnectionString);
+                // Use Entra ID (DefaultAzureCredential) since SAS auth is disabled on the namespace
+                // Extract hostname from connection string e.g. "Endpoint=sb://mynamespace.servicebus.windows.net/;..."
+                var endpoint = config.ServiceBusConnectionString;
+                var host = endpoint.Split(';')[0].Replace("Endpoint=sb://", "").TrimEnd('/');
+                var clientOptions = new ServiceBusClientOptions
+                {
+                    TransportType = ServiceBusTransportType.AmqpWebSockets
+                };
+                var client = new ServiceBusClient(host, new DefaultAzureCredential(), clientOptions);
                 var serviceBusSender = client.CreateSender(config.ServiceBusQueueName);
 
                 Console.WriteLine("Starting to consume messages from MSMQ...");
@@ -72,8 +77,13 @@ namespace MSMQToAzureServiceBusFrame
 
                             if (msmqMessage != null)
                             {
-                                // Process message (convert to string)
-                                string messageBody = msmqMessage.Body.ToString();
+                                // Read raw body stream to handle any message format (XML, HL7, plain text)
+                                msmqMessage.BodyStream.Position = 0;
+                                string messageBody;
+                                using (var reader = new System.IO.StreamReader(msmqMessage.BodyStream, System.Text.Encoding.Unicode, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
+                                {
+                                    messageBody = reader.ReadToEnd();
+                                }
 
                                 // Convert the message content into a byte array encoding
                                 byte[] messageBytes = AppEncoding.DetectEncoding(messageBody);
@@ -87,6 +97,8 @@ namespace MSMQToAzureServiceBusFrame
                                 // Create a Service Bus message
                                 var serviceBusMessage = new ServiceBusMessage(messageMemory);
 
+                                // Queue has sessions enabled - use MSMQ label as SessionId, fallback to "default"
+                                serviceBusMessage.SessionId = !string.IsNullOrEmpty(msmqMessage.Label) ? msmqMessage.Label : "default";
                                 serviceBusMessage.ApplicationProperties.Add("MSMQArrivedTime", arrivedTime);
                                 // Send the message to Azure Service Bus
                                 await serviceBusSender.SendMessageAsync(serviceBusMessage);
