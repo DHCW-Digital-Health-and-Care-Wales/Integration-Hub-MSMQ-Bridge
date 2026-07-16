@@ -170,7 +170,6 @@ C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureSer
 C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\obj\Debug\MSMQToAz.E556FE14.Up2Date
 C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\obj\Debug\MSMQToAzureServiceBusFrame.exe
 C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\obj\Debug\MSMQToAzureServiceBusFrame.pdb
-C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\obj\Debug\MSMQToAzureServiceBusFrame.exe.config
 C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\bin\Debug\Azure.Identity.dll
 C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\bin\Debug\Azure.Identity.xml
 C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\bin\Debug\Microsoft.Identity.Client.dll

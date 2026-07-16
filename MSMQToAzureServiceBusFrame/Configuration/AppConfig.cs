@@ -9,17 +9,17 @@ namespace MSMQToAzureServiceBusFrame.Configuration
     {
         public string MsmqConnectionString { get; set; }
         public string ServiceBusConnectionString { get; set; }
-        public string ServiceBusQueueName { get; set; }
+        public string ServiceBusTopicName { get; set; }
 
-        private static List<string> _args = new List<string> { "MSMQ_CONNECTION_STRING", "SERVICE_BUS_CONNECTION_STRING", "SERVICE_BUS_QUEUENAME" };
+        private static List<string> _args = new List<string> { "MSMQ_CONNECTION_STRING", "SERVICE_BUS_CONNECTION_STRING", "SERVICE_BUS_TOPIC_NAME" };
         private static List<string> argsvalue;
         private static Dictionary<string, string> argMap = new Dictionary<string, string>();
 
-        public AppConfig(string msmqConnectionString, string serviceBusConnectionString, string serviceBusQueueName)
+        public AppConfig(string msmqConnectionString, string serviceBusConnectionString, string serviceBusTopicName)
         {
             MsmqConnectionString = msmqConnectionString;
             ServiceBusConnectionString = serviceBusConnectionString;
-            ServiceBusQueueName = serviceBusQueueName;
+            ServiceBusTopicName = serviceBusTopicName;
         }
             
         public static AppConfig ReadEnvConfig()
@@ -27,7 +27,7 @@ namespace MSMQToAzureServiceBusFrame.Configuration
             return new AppConfig(
                 ReadEnv("MSMQ_CONNECTION_STRING", true),
                 ReadEnv("SERVICE_BUS_CONNECTION_STRING", false),                         
-                ReadEnv("SERVICE_BUS_QUEUENAME", false)
+                ReadEnv("SERVICE_BUS_TOPIC_NAME", false)
             );
         }
 
@@ -60,7 +60,7 @@ namespace MSMQToAzureServiceBusFrame.Configuration
             }
             return new AppConfig(argMap["MSMQ_CONNECTION_STRING"],
                 argMap["SERVICE_BUS_CONNECTION_STRING"],
-                argMap["SERVICE_BUS_QUEUENAME"]);
+                argMap["SERVICE_BUS_TOPIC_NAME"]);
 
         }
 

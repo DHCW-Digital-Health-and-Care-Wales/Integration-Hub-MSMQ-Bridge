@@ -43,7 +43,7 @@ namespace MSMQToAzureServiceBusFrame
                     TransportType = ServiceBusTransportType.AmqpWebSockets
                 };
                 var client = new ServiceBusClient(host, new DefaultAzureCredential(), clientOptions);
-                var serviceBusSender = client.CreateSender(config.ServiceBusQueueName);
+                var serviceBusSender = client.CreateSender(config.ServiceBusTopicName);
 
                 Console.WriteLine("Starting to consume messages from MSMQ...");
                 log.Info("Starting to consume messages from MSMQ...");
@@ -72,15 +72,24 @@ namespace MSMQToAzureServiceBusFrame
                     {
                         try
                         {
-                            // Receive message from MSMQ
-                            var msmqMessage = msmqQueue.Receive();
+                            // Receive message from MSMQ with timeout so shutdown can be detected
+                            Message msmqMessage = null;
+                            try
+                            {
+                                msmqMessage = msmqQueue.Receive(TimeSpan.FromSeconds(2));
+                            }
+                            catch (MessageQueueException mqEx) when (mqEx.MessageQueueErrorCode == MessageQueueErrorCode.IOTimeout)
+                            {
+                                // No message within timeout - loop back and check shutdown flag
+                                continue;
+                            }
 
                             if (msmqMessage != null)
                             {
                                 // Read raw body stream to handle any message format (XML, HL7, plain text)
                                 msmqMessage.BodyStream.Position = 0;
                                 string messageBody;
-                                using (var reader = new System.IO.StreamReader(msmqMessage.BodyStream, System.Text.Encoding.Unicode, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
+                                using (var reader = new System.IO.StreamReader(msmqMessage.BodyStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
                                 {
                                     messageBody = reader.ReadToEnd();
                                 }
