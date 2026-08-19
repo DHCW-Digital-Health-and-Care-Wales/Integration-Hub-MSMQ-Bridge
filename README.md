@@ -73,8 +73,8 @@ must be wrapped in escaped quotes:
 
 ```powershell
 $exePath = "C:\Services\MsmqBridge\MSMQToAzureServiceBusFrame.exe"
-$msmqConn = "10.57.106.225\private$\proms_queue_hdda_sit"
-$sbConn = "Endpoint=sb://uks-dhcw-ih-dev-sbns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=*SHARED KEY*"
+$msmqConn = ".\private$\ALEX_TEST_QUEUE"
+$sbConn = "Endpoint=sb://uks-dhcw-ih-dev-sbns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=*KEY HERE*"
 $sbTopic = "uks-dhcw-ih-dev-sbns-sbt-msmq-receiver"
 
 $binaryPathName = "`"$exePath`" --MSMQ_CONNECTION_STRING `"$msmqConn`" --SERVICE_BUS_CONNECTION_STRING `"$sbConn`" --SERVICE_BUS_TOPIC_NAME `"$sbTopic`""
@@ -98,6 +98,25 @@ Start-Service "MsmqAzureServiceBusBridge"
 > `SERVICE_BUS_CONNECTION_STRING`, `SERVICE_BUS_TOPIC_NAME` as machine-level environment variables
 > (`setx /M ...`) instead of command-line args.
 
+> **"Access is denied" from `New-Service`**: creating a service requires an elevated (Run as
+> Administrator) PowerShell session - being a local admin isn't enough on its own if the console
+> itself wasn't launched elevated. Close the current session and reopen PowerShell/Windows
+> Terminal via "Run as administrator", then re-run the `New-Service` command. You can confirm
+> elevation first with `([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)`
+> (should print `True`). If `New-Service` fails, the service was never created, so the subsequent
+> `sc.exe failure` step will correctly report `OpenService FAILED 1060` ("service does not exist") -
+> that error is expected until `New-Service` itself succeeds.
+
+> **"Cannot start service" from `Start-Service`**: `Start-Service`'s error message is a generic
+> wrapper - it doesn't show the real reason. Check the Windows **Event Viewer** ->
+> `Windows Logs > System` (source `Service Control Manager`) and `Windows Logs > Application`
+> (source matches the service name / log4net) for the actual failure. If the app was created
+> without command-line arg support in the service host, or the arguments couldn't be read, `OnStart`
+> throws an unhandled exception, which surfaces here as this generic error. Rebuild with the latest
+> code (the service now correctly forwards the exe's own command-line args - the ones baked into
+> `-BinaryPathName` - into the pump; earlier builds silently ignored them and fell back to reading
+> environment variables instead, which are unset by default) before retrying.
+
 ### 4. Manage the service
 
 ```powershell
@@ -109,6 +128,96 @@ sc.exe delete MsmqAzureServiceBusBridge   # uninstall (service must be stopped f
 
 Logs are written to `log.txt` next to the exe (see `App.config`'s `log4net` section) regardless of
 whether the app is run interactively or as a service.
+
+### Viewing logs
+
+Two sources, depending on what you need:
+
+- **`log.txt` next to the exe** - the app's own activity log (message-by-message: sent/received,
+  transient errors from the pump). Written via log4net regardless of console vs. service mode.
+  ```powershell
+  Get-Content "C:\Services\MsmqBridge\log.txt" -Tail 50 -Wait   # -Wait tails it live
+  ```
+
+- **Event Viewer -> Windows Logs -> Application** - service lifecycle events (start/stop, since
+  `AutoLog = true` on `MsmqBridgeService`), and critically, any *unhandled* exception that crashes
+  `OnStart` before log4net gets a chance to write anything to `log.txt` (e.g. a missing/invalid
+  config value). This is the log to check first when `Start-Service` fails.
+  ```powershell
+  Get-WinEvent -LogName Application -MaxEvents 20 |
+      Where-Object { $_.Message -like "*MsmqAzureServiceBusBridge*" } |
+      Format-List TimeCreated, LevelDisplayName, Message
+  ```
+
+
+
+Run elevated (Run as Administrator) on the target server:
+
+```powershell
+# 1. Stop and delete the existing service
+Stop-Service "MsmqAzureServiceBusBridge" -ErrorAction SilentlyContinue
+sc.exe delete "MsmqAzureServiceBusBridge"
+
+# 2. Replace the binaries with the newly built output - do this every time you change code,
+#    even if the folder path is unchanged. Forgetting this step is the #1 cause of "the fix
+#    didn't work" - the service will silently keep running the old exe.
+New-Item -ItemType Directory -Path "C:\Services\MsmqBridge" -Force | Out-Null
+Copy-Item -Path "C:\IntHub\Integration-Hub-MSMQ-Bridge\Integration-Hub-MSMQ-Bridge\MSMQToAzureServiceBusFrame\bin\Release\*" -Destination "C:\Services\MsmqBridge\" -Recurse -Force
+
+# Sanity check: confirm the deployed exe's timestamp matches your latest build
+Get-Item "C:\Services\MsmqBridge\MSMQToAzureServiceBusFrame.exe" | Select-Object LastWriteTime
+
+# 3. Recreate the service (re-run the same New-Service block from step 3 above)
+$exePath = "C:\Services\MsmqBridge\MSMQToAzureServiceBusFrame.exe"
+$msmqConn = ".\private$\ALEX_TEST_QUEUE"
+$sbConn = "Endpoint=sb://uks-dhcw-ih-dev-sbns.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=*KEY HERE*"
+$sbTopic = "uks-dhcw-ih-dev-sbns-sbt-msmq-receiver"
+
+$binaryPathName = "`"$exePath`" --MSMQ_CONNECTION_STRING `"$msmqConn`" --SERVICE_BUS_CONNECTION_STRING `"$sbConn`" --SERVICE_BUS_TOPIC_NAME `"$sbTopic`""
+
+New-Service -Name "MsmqAzureServiceBusBridge" `
+    -BinaryPathName $binaryPathName `
+    -DisplayName "MSMQ to Azure Service Bus Bridge" `
+    -Description "Forwards MSMQ messages to Azure Service Bus." `
+    -StartupType Automatic
+
+sc.exe failure "MsmqAzureServiceBusBridge" reset= 86400 actions= restart/10000/restart/30000/restart/60000
+Start-Service "MsmqAzureServiceBusBridge"
+```
+
+> `sc.exe delete` sometimes reports success but leaves the service marked "pending deletion" until
+> every handle to it is closed (e.g. an open Services console/`services.msc` window, or a
+> `Get-Service` result still referenced in the same PowerShell session). Close `services.msc` and
+> any variables holding the old `Get-Service`/`New-Service` result, or open a fresh PowerShell
+> session, if `New-Service` for the same name fails with "service already exists" right after
+> deleting it.
+>
+> If only the **arguments** changed (not the exe itself), you don't need to delete/recreate the
+> service at all - just update the registry directly and restart it:
+> ```powershell
+> Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\MsmqAzureServiceBusBridge" -Name ImagePath -Value $binaryPathName
+> Restart-Service "MsmqAzureServiceBusBridge"
+> ```
+
+> **"Access to Message Queuing system is denied" (`MessageQueueException 0x80004005`) only when
+> running as a service**: `New-Service` defaults to running the service as `LocalSystem`. Even
+> though the exact same connection string worked when you ran the exe interactively as yourself
+> (step 3), `LocalSystem` is a different Windows identity that has no ACL entry on the queue.
+> Fix by granting that identity permission on the queue:
+> 1. Open **Computer Management** -> **Services and Applications** -> **Message Queuing** ->
+>    **Private Queues** -> find the queue (e.g. `ALEX_TEST_QUEUE`) -> right-click **Properties** ->
+>    **Security** tab.
+> 2. Add **SYSTEM** (or **NETWORK SERVICE** if you configure the service to run as that account
+>    instead - see below) and grant **Receive Message** and **Peek Message** (Allow).
+> 3. `Restart-Service "MsmqAzureServiceBusBridge"`.
+>
+> Alternatively, run the service under a dedicated service account that already has queue
+> permissions (recommended for anything beyond local dev/test), instead of `LocalSystem`:
+> ```powershell
+> $cred = Get-Credential   # domain\svc-msmqbridge or .\svc-msmqbridge
+> Set-Service "MsmqAzureServiceBusBridge" -Credential $cred
+> Restart-Service "MsmqAzureServiceBusBridge"
+> ```
 
 ### Notes for remote MSMQ
 

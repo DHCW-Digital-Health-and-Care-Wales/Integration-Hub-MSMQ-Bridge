@@ -16,11 +16,19 @@ namespace MSMQToAzureServiceBusFrame
         public const string ServiceIdentifier = "MsmqAzureServiceBusBridge";
 
         private static readonly ILog log = LogManager.GetLogger(typeof(MsmqBridgeService));
+        private readonly string[] _processArgs;
         private CancellationTokenSource _cts;
         private Task _runTask;
 
-        public MsmqBridgeService()
+        /// <param name="processArgs">
+        /// The real command-line args the process was launched with (embedded in the service's
+        /// ImagePath). These are NOT the same as OnStart's own args parameter, which only carries
+        /// SCM "start parameters" and is empty unless the service is started via
+        /// `sc start Name arg1 arg2`.
+        /// </param>
+        public MsmqBridgeService(string[] processArgs)
         {
+            _processArgs = processArgs;
             ServiceName = ServiceIdentifier;
             CanStop = true;
             CanShutdown = true;
@@ -31,8 +39,8 @@ namespace MSMQToAzureServiceBusFrame
         {
             log.Info("Service starting...");
 
-            AppConfig config = args != null && args.Length > 0
-                ? AppConfig.ReadCommandLineArg(args)
+            AppConfig config = _processArgs != null && _processArgs.Length > 0
+                ? AppConfig.ReadCommandLineArg(_processArgs)
                 : AppConfig.ReadEnvConfig();
 
             _cts = new CancellationTokenSource();

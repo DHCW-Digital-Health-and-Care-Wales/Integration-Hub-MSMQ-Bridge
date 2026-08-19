@@ -21,7 +21,11 @@ namespace MSMQToAzureServiceBusFrame
             {
                 // No interactive session (SessionId 0) means we were launched by the
                 // Service Control Manager - hand control over to it.
-                ServiceBase.Run(new MsmqBridgeService());
+                // NOTE: args here are the real process command-line args (from the service's
+                // ImagePath). ServiceBase's own OnStart(args) parameter is a *different*,
+                // separate mechanism (SCM "start parameters") that is empty unless passed via
+                // `sc start Name arg1 arg2`, so we must forward these explicitly.
+                ServiceBase.Run(new MsmqBridgeService(args));
                 return;
             }
 
