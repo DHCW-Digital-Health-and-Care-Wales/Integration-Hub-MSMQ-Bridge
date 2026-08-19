@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 
 namespace MSMQToAzureServiceBusFrame.Configuration
@@ -9,17 +10,43 @@ namespace MSMQToAzureServiceBusFrame.Configuration
     {
         public string MsmqConnectionString { get; set; }
         public string ServiceBusConnectionString { get; set; }
-        public string ServiceBusQueueName { get; set; }
+        public string ServiceBusTopicName { get; set; }
 
-        private static List<string> _args = new List<string> { "MSMQ_CONNECTION_STRING", "SERVICE_BUS_CONNECTION_STRING", "SERVICE_BUS_QUEUENAME" };
+        private static List<string> _args = new List<string> { "MSMQ_CONNECTION_STRING", "SERVICE_BUS_CONNECTION_STRING", "SERVICE_BUS_TOPIC_NAME" };
         private static List<string> argsvalue;
         private static Dictionary<string, string> argMap = new Dictionary<string, string>();
 
-        public AppConfig(string msmqConnectionString, string serviceBusConnectionString, string serviceBusQueueName)
+        private static readonly Regex IpAddressPattern = new Regex(@"^\d{1,3}(\.\d{1,3}){3}$", RegexOptions.Compiled);
+
+        public AppConfig(string msmqConnectionString, string serviceBusConnectionString, string serviceBusTopicName)
         {
-            MsmqConnectionString = msmqConnectionString;
+            MsmqConnectionString = NormalizeMsmqPath(msmqConnectionString);
             ServiceBusConnectionString = serviceBusConnectionString;
-            ServiceBusQueueName = serviceBusQueueName;
+            ServiceBusTopicName = serviceBusTopicName;
+        }
+
+        // Path syntax (machine\private$\queue) only works for local queues.
+        // Remote private queues require FormatName direct syntax, e.g.
+        // FormatName:DIRECT=TCP:10.57.106.225\private$\queue (IP address)
+        // FormatName:DIRECT=OS:MYSERVER\private$\queue (host name)
+        private static string NormalizeMsmqPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) ||
+                path.StartsWith("FormatName:", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith(".\\", StringComparison.Ordinal))
+            {
+                return path;
+            }
+
+            var separatorIndex = path.IndexOf('\\');
+            if (separatorIndex <= 0)
+            {
+                return path;
+            }
+
+            var machine = path.Substring(0, separatorIndex);
+            var protocol = IpAddressPattern.IsMatch(machine) ? "TCP" : "OS";
+            return $"FormatName:DIRECT={protocol}:{path}";
         }
             
         public static AppConfig ReadEnvConfig()
@@ -27,7 +54,7 @@ namespace MSMQToAzureServiceBusFrame.Configuration
             return new AppConfig(
                 ReadEnv("MSMQ_CONNECTION_STRING", true),
                 ReadEnv("SERVICE_BUS_CONNECTION_STRING", false),                         
-                ReadEnv("SERVICE_BUS_QUEUENAME", false)
+                ReadEnv("SERVICE_BUS_TOPIC_NAME", false)
             );
         }
 
@@ -60,7 +87,7 @@ namespace MSMQToAzureServiceBusFrame.Configuration
             }
             return new AppConfig(argMap["MSMQ_CONNECTION_STRING"],
                 argMap["SERVICE_BUS_CONNECTION_STRING"],
-                argMap["SERVICE_BUS_QUEUENAME"]);
+                argMap["SERVICE_BUS_TOPIC_NAME"]);
 
         }
 
