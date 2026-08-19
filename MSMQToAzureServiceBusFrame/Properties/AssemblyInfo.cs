@@ -31,3 +31,7 @@ using System.Runtime.InteropServices;
 //
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
+
+// log4net does not auto-configure itself - this attribute loads the <log4net> section
+// from the app's .config file at startup and re-reads it if it changes on disk.
+[assembly: log4net.Config.XmlConfigurator(Watch = true)]
