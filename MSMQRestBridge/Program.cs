@@ -2,11 +2,11 @@
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
-using MSMQToAzureServiceBusFrame.Configuration;
+using MsmqRestBridge.Configuration;
 using log4net;
 
 
-namespace MSMQToAzureServiceBusFrame
+namespace MsmqRestBridge
 {
     class Program
     {

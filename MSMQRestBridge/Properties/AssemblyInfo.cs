@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("MSMQToAzureServiceBusFrame")]
+[assembly: AssemblyTitle("MSMQRestBridge")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("NWIS")]
-[assembly: AssemblyProduct("MSMQToAzureServiceBusFrame")]
+[assembly: AssemblyProduct("MSMQRestBridge")]
 [assembly: AssemblyCopyright("Copyright © NWIS 2025")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]

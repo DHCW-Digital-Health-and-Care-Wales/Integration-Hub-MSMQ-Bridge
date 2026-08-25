@@ -1,28 +1,52 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 
 
-namespace MSMQToAzureServiceBusFrame.Configuration
+namespace MsmqRestBridge.Configuration
 {
     public class AppConfig
     {
-        public string MsmqConnectionString { get; set; }
-        public string ServiceBusConnectionString { get; set; }
-        public string ServiceBusTopicName { get; set; }
+        public const int DefaultRestTimeoutSeconds = 30;
+        public const int DefaultMaxRetryAttempts = 5;
 
-        private static List<string> _args = new List<string> { "MSMQ_CONNECTION_STRING", "SERVICE_BUS_CONNECTION_STRING", "SERVICE_BUS_TOPIC_NAME" };
-        private static List<string> argsvalue;
-        private static Dictionary<string, string> argMap = new Dictionary<string, string>();
+        public string MsmqConnectionString { get; set; }
+        public string RestEndpointUrl { get; set; }
+        public string RestApiKey { get; set; }
+        public int RestTimeoutSeconds { get; set; }
+        public int MaxRetryAttempts { get; set; }
+        public string DeadLetterFolder { get; set; }
+
+        private static readonly List<string> RequiredArgs = new List<string> { "MSMQ_CONNECTION_STRING", "REST_ENDPOINT_URL" };
+        private static readonly List<string> OptionalArgs = new List<string> { "REST_API_KEY", "REST_TIMEOUT_SECONDS", "MAX_RETRY_ATTEMPTS", "DEAD_LETTER_FOLDER" };
 
         private static readonly Regex IpAddressPattern = new Regex(@"^\d{1,3}(\.\d{1,3}){3}$", RegexOptions.Compiled);
 
-        public AppConfig(string msmqConnectionString, string serviceBusConnectionString, string serviceBusTopicName)
+        public AppConfig(string msmqConnectionString, string restEndpointUrl, string restApiKey,
+            string restTimeoutSeconds = null, string maxRetryAttempts = null, string deadLetterFolder = null)
         {
             MsmqConnectionString = NormalizeMsmqPath(msmqConnectionString);
-            ServiceBusConnectionString = serviceBusConnectionString;
-            ServiceBusTopicName = serviceBusTopicName;
+            RestEndpointUrl = restEndpointUrl;
+            RestApiKey = restApiKey;
+            RestTimeoutSeconds = ParsePositiveInt(restTimeoutSeconds, DefaultRestTimeoutSeconds);
+            MaxRetryAttempts = ParsePositiveInt(maxRetryAttempts, DefaultMaxRetryAttempts);
+            DeadLetterFolder = string.IsNullOrWhiteSpace(deadLetterFolder)
+                ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dead-letter")
+                : deadLetterFolder;
+        }
+
+        private static int ParsePositiveInt(string value, int defaultValue)
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) &&
+                parsed > 0)
+            {
+                return parsed;
+            }
+            return defaultValue;
         }
 
         // Path syntax (machine\private$\queue) only works for local queues.
@@ -53,8 +77,11 @@ namespace MSMQToAzureServiceBusFrame.Configuration
         {
             return new AppConfig(
                 ReadEnv("MSMQ_CONNECTION_STRING", true),
-                ReadEnv("SERVICE_BUS_CONNECTION_STRING", false),                         
-                ReadEnv("SERVICE_BUS_TOPIC_NAME", false)
+                ReadEnv("REST_ENDPOINT_URL", true),
+                ReadEnv("REST_API_KEY", false),
+                ReadEnv("REST_TIMEOUT_SECONDS", false),
+                ReadEnv("MAX_RETRY_ATTEMPTS", false),
+                ReadEnv("DEAD_LETTER_FOLDER", false)
             );
         }
 
@@ -70,24 +97,39 @@ namespace MSMQToAzureServiceBusFrame.Configuration
 
         public static AppConfig ReadCommandLineArg(string[] args)
         {
-            argsvalue = args.ToList();
-            for (int i = 0; i < _args.Count; i++)
-            {
-                var index = argsvalue.IndexOf("--" + _args[i]);
-                if (index >= 0 && argsvalue.Count > index)
-                {
-                    argMap.Add(_args[i], argsvalue[index + 1]);
+            var argsvalue = args.ToList();
+            var argMap = new Dictionary<string, string>();
 
+            foreach (var name in RequiredArgs.Concat(OptionalArgs))
+            {
+                var index = argsvalue.IndexOf("--" + name);
+                if (index >= 0 && argsvalue.Count > index + 1)
+                {
+                    argMap[name] = argsvalue[index + 1];
+                }
+                else if (RequiredArgs.Contains(name))
+                {
+                    // Fall back to the environment before giving up on a required setting.
+                    var fromEnv = Environment.GetEnvironmentVariable(name);
+                    if (string.IsNullOrEmpty(fromEnv))
+                    {
+                        throw new InvalidOperationException($"Missing required configuration: {name}");
+                    }
+                    argMap[name] = fromEnv;
                 }
                 else
                 {
-                    throw new InvalidOperationException($"Missing required configuration: {_args[i]}");
-
+                    argMap[name] = Environment.GetEnvironmentVariable(name);
                 }
             }
-            return new AppConfig(argMap["MSMQ_CONNECTION_STRING"],
-                argMap["SERVICE_BUS_CONNECTION_STRING"],
-                argMap["SERVICE_BUS_TOPIC_NAME"]);
+
+            return new AppConfig(
+                argMap["MSMQ_CONNECTION_STRING"],
+                argMap["REST_ENDPOINT_URL"],
+                argMap["REST_API_KEY"],
+                argMap["REST_TIMEOUT_SECONDS"],
+                argMap["MAX_RETRY_ATTEMPTS"],
+                argMap["DEAD_LETTER_FOLDER"]);
 
         }
 
