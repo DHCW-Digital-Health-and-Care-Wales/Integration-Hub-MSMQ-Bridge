@@ -28,12 +28,33 @@ namespace MsmqRestBridge
         public Worker(AppConfig config)
         {
             _config = config;
-
-            // HttpClient.Timeout may only be changed before the first request is issued.
-            httpClient.Timeout = TimeSpan.FromSeconds(_config.RestTimeoutSeconds);
         }
 
         public async Task RunAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await PumpLoop(cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break; // normal shutdown
+                }
+                catch (Exception ex)
+                {
+                    log.Fatal($"Message pump crashed, restarting in 10s: {ex.Message}", ex);
+                    Console.WriteLine($"Pump crashed, restarting in 10s: {ex.Message}");
+                    try { await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken); }
+                    catch (OperationCanceledException) { break; }
+                }
+            }
+            log.Info("MSMQ message pump stopped.");
+            Console.WriteLine("MSMQ message pump stopped.");
+        }
+
+        private async Task PumpLoop(CancellationToken cancellationToken)
         {
             using (MessageQueue msmqQueue = new MessageQueue(_config.MsmqConnectionString))
             {
@@ -44,73 +65,73 @@ namespace MsmqRestBridge
                 Console.WriteLine("Starting to consume messages from MSMQ...");
                 log.Info("Starting to consume messages from MSMQ...");
 
-                try
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    while (!cancellationToken.IsCancellationRequested)
+                    try
                     {
+                        // Receive message from MSMQ with timeout so shutdown can be detected
+                        Message msmqMessage = null;
                         try
                         {
-                            // Receive message from MSMQ with timeout so shutdown can be detected
-                            Message msmqMessage = null;
-                            try
-                            {
-                                msmqMessage = msmqQueue.Receive(TimeSpan.FromSeconds(2));
-                            }
-                            catch (MessageQueueException mqEx) when (mqEx.MessageQueueErrorCode == MessageQueueErrorCode.IOTimeout)
-                            {
-                                // No message within timeout - loop back and check cancellation
-                                continue;
-                            }
-
-                            if (msmqMessage != null)
-                            {
-                                // Read raw body stream to handle any message format (XML, HL7, plain text)
-                                msmqMessage.BodyStream.Position = 0;
-                                string messageBody;
-                                using (var reader = new StreamReader(msmqMessage.BodyStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
-                                {
-                                    messageBody = reader.ReadToEnd();
-                                }
-
-                                byte[] messageBytes = Encoding.UTF8.GetBytes(messageBody);
-                                DateTime arrivedTime = msmqMessage.ArrivedTime;
-
-                                string failureReason = await PostToRestEndpointAsync(messageBytes, msmqMessage.Label, arrivedTime, cancellationToken);
-
-                                if (failureReason == null)
-                                {
-                                    Console.WriteLine("Message sent to REST endpoint.");
-                                    log.Info("Message sent to REST endpoint.");
-                                }
-                                else
-                                {
-                                    HandleDeliveryFailure(msmqQueue, msmqMessage, messageBytes, failureReason);
-                                }
-                            }
+                            msmqMessage = msmqQueue.Receive(TimeSpan.FromSeconds(2));
                         }
-                        catch (Exception ex)
+                        catch (MessageQueueException mqEx) when (mqEx.MessageQueueErrorCode == MessageQueueErrorCode.IOTimeout)
                         {
-                            // Log and keep running - a transient error (e.g. network blip) should not
-                            // permanently stop an unattended service. Cancellation is the only stop signal.
-                            Console.WriteLine($"Error: {ex.Message}");
-                            log.Error($"Error: {ex.Message}", ex);
+                            // No message within timeout - loop back and check cancellation
+                            continue;
+                        }
+
+                        if (msmqMessage != null)
+                        {
+                            // Read raw body stream to handle any message format (XML, HL7, plain text)
+                            msmqMessage.BodyStream.Position = 0;
+                            string messageBody;
+                            using (var reader = new StreamReader(msmqMessage.BodyStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
+                            {
+                                messageBody = reader.ReadToEnd();
+                            }
+
+                            byte[] messageBytes = Encoding.UTF8.GetBytes(messageBody);
+                            DateTime arrivedTime = msmqMessage.ArrivedTime;
+
+                            (string failureReason, bool isPermanent) = await PostToRestEndpointAsync(messageBytes, msmqMessage.Label, arrivedTime, cancellationToken);
+
+                            if (failureReason == null)
+                            {
+                                Console.WriteLine("Message sent to REST endpoint.");
+                                log.Info("Message sent to REST endpoint.");
+                            }
+                            else
+                            {
+                                await HandleDeliveryFailure(msmqQueue, msmqMessage, messageBytes, failureReason, isPermanent, cancellationToken);
+                            }
                         }
                     }
-                }
-                finally
-                {
-                    Console.WriteLine("MSMQ message pump stopped.");
-                    log.Info("MSMQ message pump stopped.");
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw; // let RunAsync handle graceful stop
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log and keep running - a transient error (e.g. network blip) should not
+                        // permanently stop an unattended service. Cancellation is the only stop signal.
+                        Console.WriteLine($"Error: {ex.Message}");
+                        log.Error($"Error: {ex.Message}", ex);
+                    }
                 }
             }
         }
 
         /// <summary>
         /// POSTs the message body to the configured REST endpoint.
-        /// Returns null on success, otherwise a human readable failure reason.
+        /// Returns (null, false) on success; otherwise (failureReason, isPermanent).
+        /// isPermanent is true for 4xx responses that should not be retried.
         /// </summary>
-        private async Task<string> PostToRestEndpointAsync(byte[] messageBytes, string label, DateTime arrivedTime, CancellationToken cancellationToken)
+        internal async Task<(string failureReason, bool isPermanent)> PostToRestEndpointAsync(byte[] messageBytes, string label, DateTime arrivedTime, CancellationToken cancellationToken)
         {
+            // Per-request timeout via a linked token; avoids mutating the shared static HttpClient.
+            using (var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(_config.RestTimeoutSeconds)))
+            using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token))
             try
             {
                 using (var request = new HttpRequestMessage(HttpMethod.Post, _config.RestEndpointUrl))
@@ -127,28 +148,36 @@ namespace MsmqRestBridge
                         request.Headers.TryAddWithoutValidation("x-api-key", _config.RestApiKey);
                     }
 
-                    using (var response = await httpClient.SendAsync(request, cancellationToken))
+                    using (var response = await httpClient.SendAsync(request, linkedCts.Token))
                     {
                         if (response.IsSuccessStatusCode)
                         {
-                            return null;
+                            return (null, false);
                         }
 
                         string responseBody = response.Content == null
                             ? string.Empty
                             : await response.Content.ReadAsStringAsync();
 
-                        return $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {Truncate(responseBody, 500)}";
+                        int statusCode = (int)response.StatusCode;
+                        string reason = $"HTTP {statusCode} {response.ReasonPhrase}: {Truncate(responseBody, 500)}";
+                        // 4xx (except 429 Too Many Requests) are permanent - retrying will always fail.
+                        bool isPermanent = statusCode >= 400 && statusCode < 500 && statusCode != 429;
+                        return (reason, isPermanent);
                     }
                 }
             }
-            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                return $"Request timed out after {_config.RestTimeoutSeconds}s.";
+                throw; // propagate external shutdown
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                return ($"Request timed out after {_config.RestTimeoutSeconds}s.", false);
             }
             catch (HttpRequestException ex)
             {
-                return $"Connection error: {ex.GetBaseException().Message}";
+                return ($"Connection error: {ex.GetBaseException().Message}", false);
             }
         }
 
@@ -157,19 +186,32 @@ namespace MsmqRestBridge
         /// dropped. The attempt count is tracked in the message Extension and the message is re-sent to
         /// the back of the same queue until MaxRetryAttempts is exhausted, after which the body is
         /// written to the dead-letter folder for manual inspection.
+        /// Permanent failures (4xx) are dead-lettered immediately without retrying.
         /// </summary>
-        private void HandleDeliveryFailure(MessageQueue msmqQueue, Message msmqMessage, byte[] messageBytes, string failureReason)
+        private async Task HandleDeliveryFailure(MessageQueue msmqQueue, Message msmqMessage, byte[] messageBytes, string failureReason, bool isPermanent, CancellationToken cancellationToken)
         {
             int attempts = ReadAttemptCount(msmqMessage.Extension) + 1;
 
             Console.WriteLine($"Failed to send message to REST endpoint (attempt {attempts}/{_config.MaxRetryAttempts}): {failureReason}");
             log.Warn($"Failed to send message to REST endpoint (attempt {attempts}/{_config.MaxRetryAttempts}): {failureReason}");
 
+            if (isPermanent)
+            {
+                log.Fatal($"Permanent failure (4xx) - dead-lettering immediately without retry. Label: {msmqMessage.Label}");
+                WriteDeadLetter(messageBytes, msmqMessage.Label, failureReason, attempts);
+                return;
+            }
+
             if (attempts >= _config.MaxRetryAttempts)
             {
                 WriteDeadLetter(messageBytes, msmqMessage.Label, failureReason, attempts);
                 return;
             }
+
+            log.Warn($"Delivery failed, pausing {_config.RetryCooldownSeconds}s before continuing...");
+            Console.WriteLine($"Delivery failed, pausing {_config.RetryCooldownSeconds}s before continuing...");
+            try { await Task.Delay(TimeSpan.FromSeconds(_config.RetryCooldownSeconds), cancellationToken); }
+            catch (OperationCanceledException) { return; }
 
             try
             {
@@ -188,7 +230,7 @@ namespace MsmqRestBridge
             }
         }
 
-        private static int ReadAttemptCount(byte[] extension)
+        internal static int ReadAttemptCount(byte[] extension)
         {
             if (extension == null || extension.Length < sizeof(int))
             {
@@ -199,7 +241,7 @@ namespace MsmqRestBridge
             return attempts < 0 ? 0 : attempts;
         }
 
-        private void WriteDeadLetter(byte[] messageBytes, string label, string failureReason, int attempts)
+        internal void WriteDeadLetter(byte[] messageBytes, string label, string failureReason, int attempts)
         {
             try
             {
@@ -228,7 +270,7 @@ namespace MsmqRestBridge
             }
         }
 
-        private static string Truncate(string value, int maxLength)
+        internal static string Truncate(string value, int maxLength)
         {
             if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
             {

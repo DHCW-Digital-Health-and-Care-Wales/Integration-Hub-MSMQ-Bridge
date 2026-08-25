@@ -39,9 +39,20 @@ namespace MsmqRestBridge
         {
             log.Info("Service starting...");
 
-            AppConfig config = _processArgs != null && _processArgs.Length > 0
-                ? AppConfig.ReadCommandLineArg(_processArgs)
-                : AppConfig.ReadEnvConfig();
+            AppConfig config;
+            try
+            {
+                config = _processArgs != null && _processArgs.Length > 0
+                    ? AppConfig.ReadCommandLineArg(_processArgs)
+                    : AppConfig.ReadEnvConfig();
+
+                config.Validate();
+            }
+            catch (Exception ex)
+            {
+                log.Fatal("Service failed to start due to invalid configuration.", ex);
+                throw;
+            }
 
             _cts = new CancellationTokenSource();
             var worker = new Worker(config);

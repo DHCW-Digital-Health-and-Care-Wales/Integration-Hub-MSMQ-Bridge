@@ -33,6 +33,8 @@ namespace MsmqRestBridge
                 ? AppConfig.ReadCommandLineArg(args)
                 : AppConfig.ReadEnvConfig();
 
+            config.Validate();
+
             using (var cts = new CancellationTokenSource())
             {
                 // Handle shutdown signals

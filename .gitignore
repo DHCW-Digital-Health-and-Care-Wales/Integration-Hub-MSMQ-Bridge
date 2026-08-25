@@ -1,2 +1,7 @@
 .vs/
 received_messages/
+
+# Build outputs
+[Bb]in/
+[Oo]bj/
+packages/

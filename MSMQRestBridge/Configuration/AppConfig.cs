@@ -12,30 +12,41 @@ namespace MsmqRestBridge.Configuration
     {
         public const int DefaultRestTimeoutSeconds = 30;
         public const int DefaultMaxRetryAttempts = 5;
+        public const int DefaultRetryCooldownSeconds = 15;
 
         public string MsmqConnectionString { get; set; }
         public string RestEndpointUrl { get; set; }
         public string RestApiKey { get; set; }
         public int RestTimeoutSeconds { get; set; }
         public int MaxRetryAttempts { get; set; }
+        public int RetryCooldownSeconds { get; set; }
         public string DeadLetterFolder { get; set; }
 
         private static readonly List<string> RequiredArgs = new List<string> { "MSMQ_CONNECTION_STRING", "REST_ENDPOINT_URL" };
-        private static readonly List<string> OptionalArgs = new List<string> { "REST_API_KEY", "REST_TIMEOUT_SECONDS", "MAX_RETRY_ATTEMPTS", "DEAD_LETTER_FOLDER" };
+        private static readonly List<string> OptionalArgs = new List<string> { "REST_API_KEY", "REST_TIMEOUT_SECONDS", "MAX_RETRY_ATTEMPTS", "RETRY_COOLDOWN_SECONDS", "DEAD_LETTER_FOLDER" };
 
         private static readonly Regex IpAddressPattern = new Regex(@"^\d{1,3}(\.\d{1,3}){3}$", RegexOptions.Compiled);
 
         public AppConfig(string msmqConnectionString, string restEndpointUrl, string restApiKey,
-            string restTimeoutSeconds = null, string maxRetryAttempts = null, string deadLetterFolder = null)
+            string restTimeoutSeconds = null, string maxRetryAttempts = null, string retryCooldownSeconds = null, string deadLetterFolder = null)
         {
             MsmqConnectionString = NormalizeMsmqPath(msmqConnectionString);
             RestEndpointUrl = restEndpointUrl;
             RestApiKey = restApiKey;
             RestTimeoutSeconds = ParsePositiveInt(restTimeoutSeconds, DefaultRestTimeoutSeconds);
             MaxRetryAttempts = ParsePositiveInt(maxRetryAttempts, DefaultMaxRetryAttempts);
+            RetryCooldownSeconds = ParsePositiveInt(retryCooldownSeconds, DefaultRetryCooldownSeconds);
             DeadLetterFolder = string.IsNullOrWhiteSpace(deadLetterFolder)
                 ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dead-letter")
                 : deadLetterFolder;
+        }
+
+        public void Validate()
+        {
+            if (string.IsNullOrWhiteSpace(MsmqConnectionString))
+                throw new InvalidOperationException("MSMQ_CONNECTION_STRING is required.");
+            if (string.IsNullOrWhiteSpace(RestEndpointUrl))
+                throw new InvalidOperationException("REST_ENDPOINT_URL is required.");
         }
 
         private static int ParsePositiveInt(string value, int defaultValue)
@@ -81,6 +92,7 @@ namespace MsmqRestBridge.Configuration
                 ReadEnv("REST_API_KEY", false),
                 ReadEnv("REST_TIMEOUT_SECONDS", false),
                 ReadEnv("MAX_RETRY_ATTEMPTS", false),
+                ReadEnv("RETRY_COOLDOWN_SECONDS", false),
                 ReadEnv("DEAD_LETTER_FOLDER", false)
             );
         }
@@ -129,6 +141,7 @@ namespace MsmqRestBridge.Configuration
                 argMap["REST_API_KEY"],
                 argMap["REST_TIMEOUT_SECONDS"],
                 argMap["MAX_RETRY_ATTEMPTS"],
+                argMap["RETRY_COOLDOWN_SECONDS"],
                 argMap["DEAD_LETTER_FOLDER"]);
 
         }
