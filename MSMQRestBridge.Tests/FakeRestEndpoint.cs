@@ -62,7 +62,7 @@ namespace MsmqRestBridge.Tests
                 long contentLength = ctx.Request.ContentLength64;
                 if (contentLength > 0)
                 {
-                    body = new byte[contentLength];
+body = new byte[checked((int)contentLength)];
                     int offset = 0;
                     while (offset < body.Length)
                     {
