@@ -182,13 +182,16 @@ using (var memory = new MemoryStream())
 
         /// <summary>
         /// The message has already been destructively received from MSMQ, so a failed POST must not be
-        /// dropped. The attempt count is tracked in the message Extension and the message is re-sent to
-        /// the back of the same queue until MaxRetryAttempts is exhausted, after which the body is
-        /// written to the dead-letter folder for manual inspection.
+        /// dropped. The attempt count is tracked in the message Extension behind a recognizable marker
+        /// (so arbitrary application-defined Extension data on the source message is never misread as an
+        /// attempt count, and is preserved across retries) and the message is re-sent to the back of the
+        /// same queue until MaxRetryAttempts is exhausted, after which the body is written to the
+        /// dead-letter folder for manual inspection.
         /// Permanent failures (4xx) are dead-lettered immediately without retrying.
         /// </summary>
         private async Task HandleDeliveryFailure(MessageQueue msmqQueue, Message msmqMessage, byte[] messageBytes, string failureReason, bool isPermanent, CancellationToken cancellationToken)
         {
+            byte[] originalExtension = GetOriginalExtension(msmqMessage.Extension);
             int attempts = ReadAttemptCount(msmqMessage.Extension) + 1;
 
             Console.WriteLine($"Failed to send message to REST endpoint (attempt {attempts}/{_config.MaxRetryAttempts}): {failureReason}");
@@ -215,7 +218,7 @@ using (var memory = new MemoryStream())
             try
             {
                 msmqMessage.BodyStream.Position = 0;
-                msmqMessage.Extension = BitConverter.GetBytes(attempts);
+                msmqMessage.Extension = BuildRetryExtension(attempts, originalExtension);
                 msmqQueue.Send(msmqMessage, msmqMessage.Label ?? string.Empty);
 
                 Console.WriteLine("Message requeued for retry.");
@@ -229,15 +232,71 @@ using (var memory = new MemoryStream())
             }
         }
 
+        // Marks the Extension bytes we write as our retry metadata, so arbitrary application-defined
+        // Extension data on a source message is never misread as an attempt count.
+        private static readonly byte[] RetryMarker = { (byte)'M', (byte)'R', (byte)'B', 0x01 };
+
         internal static int ReadAttemptCount(byte[] extension)
         {
-            if (extension == null || extension.Length < sizeof(int))
+            if (!HasRetryMarker(extension))
             {
                 return 0;
             }
 
-            int attempts = BitConverter.ToInt32(extension, 0);
+            int attempts = BitConverter.ToInt32(extension, RetryMarker.Length);
             return attempts < 0 ? 0 : attempts;
+        }
+
+        /// <summary>
+        /// Returns the application-defined Extension data that existed before we tagged the message
+        /// with retry metadata, so it can be preserved across requeues instead of being overwritten.
+        /// </summary>
+        internal static byte[] GetOriginalExtension(byte[] extension)
+        {
+            if (!HasRetryMarker(extension))
+            {
+                return extension;
+            }
+
+            int originalLength = extension.Length - RetryMarker.Length - sizeof(int);
+            var original = new byte[originalLength];
+            Array.Copy(extension, RetryMarker.Length + sizeof(int), original, 0, originalLength);
+            return original;
+        }
+
+        /// <summary>
+        /// Builds the Extension bytes to write when requeuing: our marker, the new attempt count, then
+        /// the preserved original Extension data (if any).
+        /// </summary>
+        internal static byte[] BuildRetryExtension(int attempts, byte[] originalExtension)
+        {
+            int originalLength = originalExtension?.Length ?? 0;
+            var result = new byte[RetryMarker.Length + sizeof(int) + originalLength];
+            Array.Copy(RetryMarker, 0, result, 0, RetryMarker.Length);
+            Array.Copy(BitConverter.GetBytes(attempts), 0, result, RetryMarker.Length, sizeof(int));
+            if (originalLength > 0)
+            {
+                Array.Copy(originalExtension, 0, result, RetryMarker.Length + sizeof(int), originalLength);
+            }
+            return result;
+        }
+
+        private static bool HasRetryMarker(byte[] extension)
+        {
+            if (extension == null || extension.Length < RetryMarker.Length + sizeof(int))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < RetryMarker.Length; i++)
+            {
+                if (extension[i] != RetryMarker[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         internal void WriteDeadLetter(byte[] messageBytes, string label, string failureReason, int attempts)
