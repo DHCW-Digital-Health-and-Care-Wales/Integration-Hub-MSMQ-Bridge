@@ -122,6 +122,12 @@ Start-Service "MsmqRestBridge"
 If only arguments changed (not the exe), just update the registry and restart:
 
 ```powershell
+$exePath = "C:\Services\MsmqBridge\MSMQRestBridge.exe"
+$msmqConn = ".\private$\ALEX_TEST_QUEUE"
+$restUrl = "https://yourapp.azurewebsites.net/api/messages"
+
+$binaryPathName = "`"$exePath`" --MSMQ_CONNECTION_STRING `"$msmqConn`" --REST_ENDPOINT_URL `"$restUrl`""
+
 Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\MsmqRestBridge" -Name ImagePath -Value $binaryPathName
 Restart-Service "MsmqRestBridge"
 ```
