@@ -84,14 +84,13 @@ namespace MsmqRestBridge
                         if (msmqMessage != null)
                         {
                             // Read raw body stream to handle any message format (XML, HL7, plain text)
-                            msmqMessage.BodyStream.Position = 0;
-                            string messageBody;
-                            using (var reader = new StreamReader(msmqMessage.BodyStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
-                            {
-                                messageBody = reader.ReadToEnd();
-                            }
-
-                            byte[] messageBytes = Encoding.UTF8.GetBytes(messageBody);
+msmqMessage.BodyStream.Position = 0;
+byte[] messageBytes;
+using (var memory = new MemoryStream())
+{
+    msmqMessage.BodyStream.CopyTo(memory);
+    messageBytes = memory.ToArray();
+}
                             DateTime arrivedTime = msmqMessage.ArrivedTime;
 
                             (string failureReason, bool isPermanent) = await PostToRestEndpointAsync(messageBytes, msmqMessage.Label, arrivedTime, cancellationToken);
