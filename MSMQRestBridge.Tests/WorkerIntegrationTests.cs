@@ -150,20 +150,28 @@ namespace MsmqRestBridge.Tests
         // ------------------------------------------------------------------ Dead-letter
 
         [Fact]
-        public void WriteDeadLetter_CreatesFileWithBodyAndReason()
+        public void WriteDeadLetter_CreatesMetadataFileAndBinaryPayload()
         {
             var worker = new Worker(MakeConfig());
-            byte[] body = Encoding.UTF8.GetBytes("poison message body");
+            byte[] body = new byte[] { 0x00, 0xFF, 0x10, 0x7F, 0x41, 0x42 };
 
             worker.WriteDeadLetter(body, "bad-label", "HTTP 400 Bad Request", 3);
 
             var files = Directory.GetFiles(_deadLetterDir);
-            Assert.Single(files);
-            string contents = File.ReadAllText(files[0], Encoding.UTF8);
-            Assert.Contains("poison message body", contents);
-            Assert.Contains("HTTP 400 Bad Request", contents);
-            Assert.Contains("Attempts: 3", contents);
-            Assert.Contains("bad-label", contents);
+            Assert.Equal(2, files.Length);
+
+            string metadataPath = Array.Find(files, path => path.EndsWith(".txt"));
+            Assert.NotNull(metadataPath);
+            string metadata = File.ReadAllText(metadataPath, Encoding.UTF8);
+            Assert.Contains("HTTP 400 Bad Request", metadata);
+            Assert.Contains("Attempts: 3", metadata);
+            Assert.Contains("bad-label", metadata);
+            Assert.Contains("BodyFile:", metadata);
+            Assert.Contains("sibling .bin file", metadata);
+
+            string payloadPath = metadataPath.Substring(0, metadataPath.Length - 4) + ".bin";
+            Assert.True(File.Exists(payloadPath));
+            Assert.Equal(body, File.ReadAllBytes(payloadPath));
         }
 
         [Fact]

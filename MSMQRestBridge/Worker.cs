@@ -337,26 +337,30 @@ namespace MsmqRestBridge
             {
                 Directory.CreateDirectory(_config.DeadLetterFolder);
 
-                string fileName = $"deadletter_{DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture)}_{Guid.NewGuid():N}.txt";
-                string path = Path.Combine(_config.DeadLetterFolder, fileName);
+                string fileName = $"deadletter_{DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture)}_{Guid.NewGuid():N}";
+                string metadataPath = Path.Combine(_config.DeadLetterFolder, fileName + ".txt");
+                string payloadPath = Path.Combine(_config.DeadLetterFolder, fileName + ".bin");
 
                 var contents = new StringBuilder();
                 contents.AppendLine($"# TimestampUtc: {DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture)}");
                 contents.AppendLine($"# Label: {label}");
                 contents.AppendLine($"# Attempts: {attempts}");
                 contents.AppendLine($"# Reason: {failureReason}");
+                contents.AppendLine($"# BodyFile: {Path.GetFileName(payloadPath)}");
                 contents.AppendLine("# ---- body ----");
-                contents.Append(Encoding.UTF8.GetString(messageBytes));
+                contents.AppendLine("(Raw MSMQ body bytes are stored in the sibling .bin file.)");
 
-                File.WriteAllText(path, contents.ToString(), Encoding.UTF8);
+                File.WriteAllText(metadataPath, contents.ToString(), Encoding.UTF8);
+                File.WriteAllBytes(payloadPath, messageBytes ?? Array.Empty<byte>());
 
-                Console.WriteLine($"Message dead-lettered to {path}");
-                log.Error($"Message dead-lettered to {path}. Reason: {failureReason}");
+                Console.WriteLine($"Message dead-lettered to {metadataPath}");
+                log.Error($"Message dead-lettered to {metadataPath}. Reason: {failureReason}");
             }
             catch (Exception ex)
             {
-                // Last resort - at least keep the payload in the log.
-                log.Error($"Failed to write dead-letter file. Reason: {failureReason}. Body: {Encoding.UTF8.GetString(messageBytes)}", ex);
+                // Last resort - at least keep a copy of the payload in the log.
+                string payloadSummary = Convert.ToBase64String(messageBytes ?? Array.Empty<byte>());
+                log.Error($"Failed to write dead-letter file. Reason: {failureReason}. BodyBase64: {payloadSummary}", ex);
             }
         }
 
