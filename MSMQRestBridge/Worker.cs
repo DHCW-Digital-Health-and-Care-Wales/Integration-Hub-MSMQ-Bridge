@@ -67,10 +67,13 @@ namespace MsmqRestBridge
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
+                    // Declared outside the try so the received message (if any) can still be
+                    // dead-lettered from the cancellation catch below instead of being lost.
+                    Message msmqMessage = null;
+                    byte[] messageBytes = null;
                     try
                     {
                         // Receive message from MSMQ with timeout so shutdown can be detected
-                        Message msmqMessage = null;
                         try
                         {
                             msmqMessage = msmqQueue.Receive(TimeSpan.FromSeconds(2));
@@ -84,13 +87,12 @@ namespace MsmqRestBridge
                         if (msmqMessage != null)
                         {
                             // Read raw body stream to handle any message format (XML, HL7, plain text)
-msmqMessage.BodyStream.Position = 0;
-byte[] messageBytes;
-using (var memory = new MemoryStream())
-{
-    msmqMessage.BodyStream.CopyTo(memory);
-    messageBytes = memory.ToArray();
-}
+                            msmqMessage.BodyStream.Position = 0;
+                            using (var memory = new MemoryStream())
+                            {
+                                msmqMessage.BodyStream.CopyTo(memory);
+                                messageBytes = memory.ToArray();
+                            }
                             DateTime arrivedTime = msmqMessage.ArrivedTime;
 
                             (string failureReason, bool isPermanent) = await PostToRestEndpointAsync(messageBytes, msmqMessage.Label, arrivedTime, cancellationToken);
@@ -108,6 +110,32 @@ using (var memory = new MemoryStream())
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
+                        // The message was already destructively received from MSMQ - dead-letter it
+                        // rather than silently dropping it on shutdown.
+                        if (msmqMessage != null)
+                        {
+                            if (messageBytes == null)
+                            {
+                                // Cancellation happened before the body was read into messageBytes -
+                                // fall back to reading the raw bytes still available on the message.
+                                try
+                                {
+                                    msmqMessage.BodyStream.Position = 0;
+                                    using (var ms = new MemoryStream())
+                                    {
+                                        msmqMessage.BodyStream.CopyTo(ms);
+                                        messageBytes = ms.ToArray();
+                                    }
+                                }
+                                catch (Exception)
+                                {
+                                    messageBytes = Array.Empty<byte>();
+                                }
+                            }
+
+                            log.Warn($"Shutdown requested while processing message (Label: {msmqMessage.Label}) - dead-lettering to avoid message loss.");
+                            WriteDeadLetter(messageBytes, msmqMessage.Label, "Service shutdown requested during delivery attempt.", ReadAttemptCount(msmqMessage.Extension));
+                        }
                         throw; // let RunAsync handle graceful stop
                     }
                     catch (Exception ex)
