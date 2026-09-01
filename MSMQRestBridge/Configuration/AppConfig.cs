@@ -45,8 +45,9 @@ namespace MsmqRestBridge.Configuration
         {
             if (string.IsNullOrWhiteSpace(MsmqConnectionString))
                 throw new InvalidOperationException("MSMQ_CONNECTION_STRING is required.");
-            if (string.IsNullOrWhiteSpace(RestEndpointUrl))
-                throw new InvalidOperationException("REST_ENDPOINT_URL is required.");
+if (!Uri.TryCreate(RestEndpointUrl, UriKind.Absolute, out var endpoint) ||
+    (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
+    throw new InvalidOperationException("REST_ENDPOINT_URL must be an absolute HTTP(S) URL.");
         }
 
         private static int ParsePositiveInt(string value, int defaultValue)
