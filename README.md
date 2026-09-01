@@ -114,7 +114,7 @@ Elevated PowerShell:
 
 ```powershell
 Stop-Service "MsmqRestBridge" -ErrorAction SilentlyContinue
-Copy-Item -Path "<repo>\bin\Release\*" -Destination "C:\Services\MsmqBridge\" -Recurse -Force
+Copy-Item -Path "<repo>\MSMQRestBridge\bin\Release\*" -Destination "C:\Services\MsmqBridge\" -Recurse -Force
 Get-Item "C:\Services\MsmqBridge\MSMQRestBridge.exe" | Select-Object LastWriteTime   # verify fresh build!
 Start-Service "MsmqRestBridge"
 ```
