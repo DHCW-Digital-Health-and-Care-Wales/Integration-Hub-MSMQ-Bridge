@@ -238,11 +238,9 @@ namespace MsmqRestBridge
                 return;
             }
 
-            log.Warn($"Delivery failed, pausing {_config.RetryCooldownSeconds}s before continuing...");
-            Console.WriteLine($"Delivery failed, pausing {_config.RetryCooldownSeconds}s before continuing...");
-            try { await Task.Delay(TimeSpan.FromSeconds(_config.RetryCooldownSeconds), cancellationToken); }
-            catch (OperationCanceledException) { return; }
-
+            // Requeue the message before waiting out the cooldown, so the only copy of the
+            // message is never left solely in memory - a crash or cancellation during the
+            // delay can no longer lose it, since it is already durably back in MSMQ.
             try
             {
                 msmqMessage.BodyStream.Position = 0;
@@ -257,7 +255,13 @@ namespace MsmqRestBridge
                 // Requeue itself failed - dead-letter rather than lose the message.
                 log.Error("Failed to requeue message, writing to dead-letter folder.", ex);
                 WriteDeadLetter(messageBytes, msmqMessage.Label, $"{failureReason} | Requeue failed: {ex.Message}", attempts);
+                return;
             }
+
+            log.Warn($"Delivery failed, pausing {_config.RetryCooldownSeconds}s before continuing...");
+            Console.WriteLine($"Delivery failed, pausing {_config.RetryCooldownSeconds}s before continuing...");
+            try { await Task.Delay(TimeSpan.FromSeconds(_config.RetryCooldownSeconds), cancellationToken); }
+            catch (OperationCanceledException) { return; }
         }
 
         // Marks the Extension bytes we write as our retry metadata, so arbitrary application-defined
