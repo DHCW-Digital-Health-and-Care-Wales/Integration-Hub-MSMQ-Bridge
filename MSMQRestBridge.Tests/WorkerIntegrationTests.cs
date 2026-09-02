@@ -188,6 +188,28 @@ namespace MsmqRestBridge.Tests
             Directory.Delete(missingDir, recursive: true);
         }
 
+        [Fact]
+        public void WriteDeadLetter_Throws_WhenDeadLetterDirectoryIsUnavailable()
+        {
+            string blockedDir = Path.Combine(Path.GetTempPath(), "msmq-dl-file-" + Guid.NewGuid().ToString("N"));
+            File.WriteAllText(blockedDir, "not a directory");
+            try
+            {
+                var config = new AppConfig(".\\private$\\q", "http://x", null,
+                    deadLetterFolder: blockedDir);
+                var worker = new Worker(config);
+
+                var ex = Assert.Throws<IOException>(() =>
+                    worker.WriteDeadLetter(new byte[] { 0x01, 0x02, 0x03 }, "label", "reason", 1));
+
+                Assert.Contains("Failed to write dead-letter file", ex.Message);
+            }
+            finally
+            {
+                if (File.Exists(blockedDir)) File.Delete(blockedDir);
+            }
+        }
+
         // ------------------------------------------------------------------ Cleanup
 
         public void Dispose()

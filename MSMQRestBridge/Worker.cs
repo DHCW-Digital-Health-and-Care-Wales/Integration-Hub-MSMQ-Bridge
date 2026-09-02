@@ -358,9 +358,9 @@ namespace MsmqRestBridge
             }
             catch (Exception ex)
             {
-                // Last resort - at least keep a copy of the payload in the log.
                 string payloadSummary = Convert.ToBase64String(messageBytes ?? Array.Empty<byte>());
                 log.Error($"Failed to write dead-letter file. Reason: {failureReason}. BodyBase64: {payloadSummary}", ex);
+                throw new IOException($"Failed to write dead-letter file. Reason: {failureReason}. BodyBase64: {payloadSummary}", ex);
             }
         }
 
