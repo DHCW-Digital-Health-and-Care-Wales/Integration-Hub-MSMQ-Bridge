@@ -5,3 +5,6 @@ received_messages/
 [Bb]in/
 [Oo]bj/
 packages/
+
+# Local/release archives
+*.zip

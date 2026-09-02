@@ -37,6 +37,9 @@ namespace MsmqRestBridge.Tests
             Assert.Equal(AppConfig.DefaultRestTimeoutSeconds, config.RestTimeoutSeconds);
             Assert.Equal(AppConfig.DefaultMaxRetryAttempts, config.MaxRetryAttempts);
             Assert.Equal(AppConfig.DefaultRetryCooldownSeconds, config.RetryCooldownSeconds);
+            Assert.Equal(AppConfig.DefaultDeadLetterRetentionDays, config.DeadLetterRetentionDays);
+            Assert.Equal(AppConfig.DefaultDeadLetterEncryptWithEfs, config.DeadLetterEncryptWithEfs);
+            Assert.Equal(AppConfig.DefaultDeadLetterRequireEfsSuccess, config.DeadLetterRequireEfsSuccess);
             Assert.False(string.IsNullOrWhiteSpace(config.DeadLetterFolder));
         }
 
@@ -99,6 +102,30 @@ namespace MsmqRestBridge.Tests
         {
             var config = new AppConfig(".\\private$\\q", "http://x", null, restTimeoutSeconds: "0");
             Assert.Equal(AppConfig.DefaultRestTimeoutSeconds, config.RestTimeoutSeconds);
+        }
+
+        [Fact]
+        public void NormalizeMsmqPath_NumericLikeHostOutsideIpv4Range_UsesOSProtocol()
+        {
+            var config = new AppConfig("999.999.999.999\\private$\\q", "http://x", null);
+            Assert.StartsWith("FormatName:DIRECT=OS:", config.MsmqConnectionString);
+        }
+
+        [Fact]
+        public void ReadCommandLineArg_EfsFlags_AreParsed()
+        {
+            var args = new[]
+            {
+                "--MSMQ_CONNECTION_STRING", ".\\private$\\TEST",
+                "--REST_ENDPOINT_URL", "http://localhost/api",
+                "--DEAD_LETTER_ENCRYPT_WITH_EFS", "true",
+                "--DEAD_LETTER_REQUIRE_EFS_SUCCESS", "1"
+            };
+
+            var config = AppConfig.ReadCommandLineArg(args);
+
+            Assert.True(config.DeadLetterEncryptWithEfs);
+            Assert.True(config.DeadLetterRequireEfsSuccess);
         }
     }
 }

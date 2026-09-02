@@ -336,6 +336,7 @@ namespace MsmqRestBridge
             try
             {
                 Directory.CreateDirectory(_config.DeadLetterFolder);
+                PurgeOldDeadLetterFiles();
 
                 string fileName = $"deadletter_{DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture)}_{Guid.NewGuid():N}";
                 string metadataPath = Path.Combine(_config.DeadLetterFolder, fileName + ".txt");
@@ -353,14 +354,68 @@ namespace MsmqRestBridge
                 File.WriteAllText(metadataPath, contents.ToString(), Encoding.UTF8);
                 File.WriteAllBytes(payloadPath, messageBytes ?? Array.Empty<byte>());
 
+                if (_config.DeadLetterEncryptWithEfs)
+                {
+                    bool encrypted = TryEncryptWithEfs(payloadPath);
+                    if (!encrypted && _config.DeadLetterRequireEfsSuccess)
+                    {
+                        throw new IOException("Dead-letter payload EFS encryption is required but could not be applied.");
+                    }
+                }
+
                 Console.WriteLine($"Message dead-lettered to {metadataPath}");
                 log.Error($"Message dead-lettered to {metadataPath}. Reason: {failureReason}");
             }
             catch (Exception ex)
             {
-                string payloadSummary = Convert.ToBase64String(messageBytes ?? Array.Empty<byte>());
-                log.Error($"Failed to write dead-letter file. Reason: {failureReason}. BodyBase64: {payloadSummary}", ex);
-                throw new IOException($"Failed to write dead-letter file. Reason: {failureReason}. BodyBase64: {payloadSummary}", ex);
+                // Do not log PHI payload bytes on failure paths.
+                int payloadLength = messageBytes?.Length ?? 0;
+                log.Error($"Failed to write dead-letter file. Reason: {failureReason}. PayloadLengthBytes: {payloadLength}", ex);
+                throw new IOException($"Failed to write dead-letter file. Reason: {failureReason}. PayloadLengthBytes: {payloadLength}", ex);
+            }
+        }
+
+        private bool TryEncryptWithEfs(string path)
+        {
+            try
+            {
+                File.Encrypt(path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                log.Warn($"Failed to encrypt dead-letter payload with EFS ('{path}'): {ex.Message}");
+                return false;
+            }
+        }
+
+        private void PurgeOldDeadLetterFiles()
+        {
+            int retentionDays = _config.DeadLetterRetentionDays;
+            if (retentionDays <= 0)
+            {
+                return;
+            }
+
+            DateTime thresholdUtc = DateTime.UtcNow.AddDays(-retentionDays);
+
+            foreach (string pattern in new[] { "deadletter_*.txt", "deadletter_*.bin" })
+            {
+                foreach (string file in Directory.EnumerateFiles(_config.DeadLetterFolder, pattern, SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        DateTime lastWriteUtc = File.GetLastWriteTimeUtc(file);
+                        if (lastWriteUtc < thresholdUtc)
+                        {
+                            File.Delete(file);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Warn($"Failed to purge dead-letter file '{Path.GetFileName(file)}': {ex.Message}");
+                    }
+                }
             }
         }
 

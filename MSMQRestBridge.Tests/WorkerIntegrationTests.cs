@@ -189,6 +189,24 @@ namespace MsmqRestBridge.Tests
         }
 
         [Fact]
+        public void WriteDeadLetter_WithEfsEnabled_StillWritesFiles()
+        {
+            var config = new AppConfig(
+                msmqConnectionString: ".\\private$\\q",
+                restEndpointUrl: "http://x",
+                restApiKey: null,
+                deadLetterFolder: _deadLetterDir,
+                deadLetterEncryptWithEfs: "true",
+                deadLetterRequireEfsSuccess: "false");
+
+            var worker = new Worker(config);
+            worker.WriteDeadLetter(new byte[] { 1, 2, 3 }, "label", "reason", 1);
+
+            var files = Directory.GetFiles(_deadLetterDir);
+            Assert.Equal(2, files.Length);
+        }
+
+        [Fact]
         public void WriteDeadLetter_Throws_WhenDeadLetterDirectoryIsUnavailable()
         {
             string blockedDir = Path.Combine(Path.GetTempPath(), "msmq-dl-file-" + Guid.NewGuid().ToString("N"));

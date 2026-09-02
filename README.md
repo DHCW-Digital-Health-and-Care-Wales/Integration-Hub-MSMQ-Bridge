@@ -24,10 +24,14 @@ The app reads its settings from command-line arguments, falling back to machine-
 | Request timeout (s) | `REST_TIMEOUT_SECONDS` | default `30` |
 | Max retry attempts | `MAX_RETRY_ATTEMPTS` | default `5` |
 | Dead-letter folder | `DEAD_LETTER_FOLDER` | default `dead-letter` next to the exe |
+| Dead-letter retention (days) | `DEAD_LETTER_RETENTION_DAYS` | default `30` |
+| Encrypt dead-letter payload with EFS | `DEAD_LETTER_ENCRYPT_WITH_EFS` | default `false` |
+| Require EFS encryption success | `DEAD_LETTER_REQUIRE_EFS_SUCCESS` | default `false` |
 
 > **Passing a shared API key on the command line means it ends up readable by local admins in the
 > service's registry ImagePath (`HKLM:\SYSTEM\CurrentControlSet\Services\...\ImagePath`). Prefer
-> machine-level env vars (`setx /M REST_API_KEY ...`) for anything beyond quick dev/test installs.**
+> machine-level env vars (`setx /M REST_API_KEY ...`) for anything beyond quick dev/test installs,
+> or a protected secret source such as DPAPI-protected local configuration / Windows Credential Manager.**
 
 ## Running locally
 
@@ -140,6 +144,14 @@ Restart-Service "MsmqRestBridge"
 - **"Cannot start service"** - generic wrapper error. Check Event Viewer (Application log) for the real exception; usually missing/invalid config args.
 - **"Access to Message Queuing system is denied" (0x80004005) only as a service** - LocalSystem has no ACL entry on the queue. Fix: Computer Management -> Message Queuing -> queue Properties -> Security -> add **SYSTEM** (or NETWORK SERVICE / dedicated account) with *Receive Message* + *Peek Message*, then restart the service. Alternatively run the service under an account that already has permissions: `$cred = Get-Credential; Set-Service "MsmqRestBridge" -Credential $cred`.
 - **Retry semantics:** unlike Service Bus peek-lock, a failed HTTP POST means the message was already destructively received from MSMQ. The bridge requeues it at the **back of the queue** (ordering not guaranteed) and tracks attempt counts; after `MAX_RETRY_ATTEMPTS` failures the message body is written to a local dead-letter folder for manual inspection.
+
+### Dead-letter security notes
+
+- Dead-letter payload is written as raw bytes (`.bin`) with metadata in a sibling `.txt`; payload bytes are **not** written to log output on dead-letter failure paths.
+- The bridge purges dead-letter files older than `DEAD_LETTER_RETENTION_DAYS` (default `30`) each time a new dead-letter entry is created.
+- If `DEAD_LETTER_ENCRYPT_WITH_EFS=true`, the bridge attempts to EFS-encrypt each dead-letter payload file after writing it.
+- If `DEAD_LETTER_REQUIRE_EFS_SUCCESS=true`, a dead-letter write is treated as failed unless EFS encryption succeeds.
+- For production, store dead-letter files on a locked-down folder (service account + administrators only) and apply at-rest encryption controls required by your organization.
 
 ### Notes for remote MSMQ
 
