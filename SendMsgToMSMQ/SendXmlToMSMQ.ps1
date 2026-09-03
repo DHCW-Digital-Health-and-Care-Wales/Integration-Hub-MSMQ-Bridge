@@ -1,3 +1,7 @@
+param(
+    [string]$Path = (Join-Path $PSScriptRoot "ADT_A05.xml")
+)
+
 # Define the queue path
 $queuePath = ".\private$\WASPQueue1"
 
@@ -10,7 +14,7 @@ if (-not [System.Messaging.MessageQueue]::Exists($queuePath)) {
 }
 
 # Path to the XML file
-$xmlFilePath = "C:\Users\Mu313340\Desktop\Bin\ADT_A05.xml"
+$xmlFilePath = $Path
 
 # Read the XML file content
 if (Test-Path $xmlFilePath) {

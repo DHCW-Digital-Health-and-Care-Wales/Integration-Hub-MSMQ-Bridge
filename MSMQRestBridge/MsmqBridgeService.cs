@@ -3,9 +3,9 @@ using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using log4net;
-using MSMQToAzureServiceBusFrame.Configuration;
+using MsmqRestBridge.Configuration;
 
-namespace MSMQToAzureServiceBusFrame
+namespace MsmqRestBridge
 {
     /// <summary>
     /// Hosts the Worker message pump under the Windows Service Control Manager.
@@ -13,7 +13,7 @@ namespace MSMQToAzureServiceBusFrame
     /// </summary>
     public class MsmqBridgeService : ServiceBase
     {
-        public const string ServiceIdentifier = "MsmqAzureServiceBusBridge";
+        public const string ServiceIdentifier = "MsmqRestBridge";
 
         private static readonly ILog log = LogManager.GetLogger(typeof(MsmqBridgeService));
         private readonly string[] _processArgs;
@@ -39,9 +39,20 @@ namespace MSMQToAzureServiceBusFrame
         {
             log.Info("Service starting...");
 
-            AppConfig config = _processArgs != null && _processArgs.Length > 0
-                ? AppConfig.ReadCommandLineArg(_processArgs)
-                : AppConfig.ReadEnvConfig();
+            AppConfig config;
+            try
+            {
+                config = _processArgs != null && _processArgs.Length > 0
+                    ? AppConfig.ReadCommandLineArg(_processArgs)
+                    : AppConfig.ReadEnvConfig();
+
+                config.Validate();
+            }
+            catch (Exception ex)
+            {
+                log.Fatal("Service failed to start due to invalid configuration.", ex);
+                throw;
+            }
 
             _cts = new CancellationTokenSource();
             var worker = new Worker(config);
@@ -70,7 +81,7 @@ namespace MSMQToAzureServiceBusFrame
             _cts?.Cancel();
             try
             {
-                // Give the pump a chance to close the Service Bus client gracefully.
+                // Give the pump a chance to finish the in-flight message gracefully.
                 _runTask?.Wait(TimeSpan.FromSeconds(15));
             }
             catch (AggregateException ex)

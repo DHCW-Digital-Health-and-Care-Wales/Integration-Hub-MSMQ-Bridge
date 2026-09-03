@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("MSMQToAzureServiceBusFrame")]
+[assembly: AssemblyTitle("MSMQRestBridge")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("NWIS")]
-[assembly: AssemblyProduct("MSMQToAzureServiceBusFrame")]
+[assembly: AssemblyProduct("MSMQRestBridge")]
 [assembly: AssemblyCopyright("Copyright © NWIS 2025")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -31,6 +31,7 @@ using System.Runtime.InteropServices;
 //
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: InternalsVisibleTo("MsmqRestBridge.Tests")]
 
 // log4net does not auto-configure itself - this attribute loads the <log4net> section
 // from the app's .config file at startup and re-reads it if it changes on disk.

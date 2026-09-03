@@ -1,5 +1,14 @@
+# System.Messaging requires .NET Framework — re-launch under Windows PowerShell 5.1 if running in PS7+
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $scriptContent = Get-Content -Raw -Path $MyInvocation.MyCommand.Path
+    powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command $scriptContent
+    exit
+}
+
+Add-Type -AssemblyName System.Messaging
+
 # Define the queue path
-$queuePath = ".\private$\WASPQueue1"
+$queuePath = ".\private$\ALEX_TEST_QUEUE"
 
 # Check if the queue exists, and create it if it doesn't
 if (-not [System.Messaging.MessageQueue]::Exists($queuePath)) {
@@ -27,5 +36,5 @@ $queue = New-Object System.Messaging.MessageQueue $queuePath
 $queue.Send($message)
 
 # Get the message count in the queue
-$messageCount = $queue.GetMessageEnumerator2().Count
+$messageCount = $queue.GetAllMessages().Length
 Write-Host "Message count: $messageCount"

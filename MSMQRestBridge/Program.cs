@@ -2,11 +2,11 @@
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
-using MSMQToAzureServiceBusFrame.Configuration;
+using MsmqRestBridge.Configuration;
 using log4net;
 
 
-namespace MSMQToAzureServiceBusFrame
+namespace MsmqRestBridge
 {
     class Program
     {
@@ -32,6 +32,8 @@ namespace MSMQToAzureServiceBusFrame
             AppConfig config = args.Length > 0
                 ? AppConfig.ReadCommandLineArg(args)
                 : AppConfig.ReadEnvConfig();
+
+            config.Validate();
 
             using (var cts = new CancellationTokenSource())
             {
