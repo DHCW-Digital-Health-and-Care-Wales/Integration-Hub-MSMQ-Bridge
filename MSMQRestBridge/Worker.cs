@@ -245,7 +245,8 @@ namespace MsmqRestBridge
             {
                 msmqMessage.BodyStream.Position = 0;
                 msmqMessage.Extension = BuildRetryExtension(attempts, originalExtension);
-                msmqQueue.Send(msmqMessage, msmqMessage.Label ?? string.Empty);
+                msmqMessage.Label = msmqMessage.Label ?? string.Empty;
+                msmqQueue.Send(msmqMessage);
 
                 Console.WriteLine("Message requeued for retry.");
                 log.Info("Message requeued for retry.");
