@@ -15,7 +15,7 @@ app = FastAPI(title="MSMQ Bridge Test Receiver")
 
 # Optional: set to require the x-api-key header the bridge sends.
 # Leave empty to skip validation during testing.
-API_KEY = "my-secret-key"  # e.g. "my-secret-key"
+API_KEY = ""  # set to a non-empty string to require the x-api-key header
 
 SAVE_DIR = Path("received_messages")
 SAVE_DIR.mkdir(exist_ok=True)
